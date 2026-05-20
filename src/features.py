@@ -13,7 +13,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy import stats as sp_stats
-from scipy.fft import rfft, rfftfreq
+from scipy.fft import rfft, rfftfreq, next_fast_len
+from scipy.signal import hilbert
 
 from src.config import (
     FAULT_FREQS_AT_1000RPM,
@@ -98,7 +99,15 @@ def _compute_fft(
     if N < 2:
         return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
 
-    fft_vals = rfft(sig)
+    # ── Phase 2: Envelope Analysis (Hilbert Transform) ──
+    # Pad to fast length for speed, then truncate back
+    fast_len = next_fast_len(N)
+    analytic = hilbert(sig, N=fast_len)
+    envelope = np.abs(analytic[:N])
+    # Remove DC component
+    envelope -= np.mean(envelope)
+
+    fft_vals = rfft(envelope)
     magnitudes = np.abs(fft_vals).astype(np.float64)
     freqs = rfftfreq(N, d=1.0 / fs)
     return magnitudes, freqs
