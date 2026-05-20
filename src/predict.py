@@ -55,6 +55,10 @@ def parse_args() -> argparse.Namespace:
         "--output_dir", type=str, default="outputs",
         help="Directory containing trained models and for saving predictions.",
     )
+    parser.add_argument(
+        "--validation_dir", type=str, default="validation",
+        help="Name of the validation subdirectory under data_dir.",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +72,7 @@ def main() -> None:
     cfg = PipelineConfig(
         data_dir=args.data_dir,
         output_dir=args.output_dir,
+        validation_subdir=args.validation_dir,
     )
     cfg.ensure_dirs()
 
