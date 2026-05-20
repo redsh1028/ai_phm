@@ -267,6 +267,7 @@ def extract_record_features(
     sample_index: int = 0,
     total_samples: int = 1,
     rpm_predictor = None,
+    temp_classifier = None,
 ) -> Dict[str, float]:
     """
     Extract a complete feature vector from a single :class:`TdmsRecord`.
@@ -350,6 +351,23 @@ def extract_record_features(
     # sample_index and elapsed_time_sec are absolute and leakage-free.
     feats["sample_index"] = float(sample_index)
     feats["elapsed_time_sec"] = float(sample_index * 600)
-    feats["is_high_temp_mode"] = 1.0 if feats.get("TC_SP_Front_C_mean", 0) > 75.0 else 0.0
+    
+    if run.operation is not None:
+        feats["is_high_temp_mode"] = 1.0 if feats.get("TC_SP_Front_C_mean", 0) > 75.0 else 0.0
+    elif temp_classifier is not None:
+        import pandas as pd
+        expected_cols = getattr(temp_classifier, "feature_names_in_", None)
+        if expected_cols is not None:
+            row_dict = {k: v for k, v in feats.items() if k in expected_cols}
+            df_row = pd.DataFrame([row_dict])
+            for col in expected_cols:
+                if col not in df_row.columns:
+                    df_row[col] = 0.0
+            pred_temp_mode = float(temp_classifier.predict(df_row[expected_cols])[0])
+            feats["is_high_temp_mode"] = pred_temp_mode
+        else:
+            feats["is_high_temp_mode"] = 0.0
+    else:
+        feats["is_high_temp_mode"] = 0.0
 
     return feats

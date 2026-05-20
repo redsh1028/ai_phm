@@ -102,6 +102,7 @@ def build_feature_table(
     cfg: PipelineConfig,
     include_labels: bool = False,
     rpm_predictor = None,
+    temp_classifier = None,
 ) -> pd.DataFrame:
     """
     Build a feature DataFrame from a list of bearing runs.
@@ -135,7 +136,8 @@ def build_feature_table(
         ):
             feats = extract_record_features(
                 rec, run, cfg, sample_index=idx, total_samples=n_records,
-                rpm_predictor=rpm_predictor
+                rpm_predictor=rpm_predictor,
+                temp_classifier=temp_classifier
             )
             feats["run_id"] = run.name  # type: ignore[assignment]
             if include_labels and rul is not None:

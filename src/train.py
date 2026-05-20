@@ -141,6 +141,18 @@ def main() -> None:
     joblib.dump(rpm_predictor, rpm_model_path)
     logger.info("Saved RPM predictor -> %s", rpm_model_path)
 
+    # ── 1.6 Train High Temp Classifier ─────────────────────────────────────
+    logger.info("=" * 60)
+    logger.info("STEP 1.6: Training High Temp Classifier")
+    logger.info("=" * 60)
+    from lightgbm import LGBMClassifier
+    y_temp = train_df['is_high_temp_mode']
+    temp_classifier = LGBMClassifier(n_estimators=100, random_state=cfg.random_seed, verbose=-1)
+    temp_classifier.fit(X_rpm, y_temp)
+    temp_model_path = os.path.join(cfg.model_dir, "temp_classifier.joblib")
+    joblib.dump(temp_classifier, temp_model_path)
+    logger.info("Saved Temp classifier -> %s", temp_model_path)
+
     # ── 2. Get model catalogue ─────────────────────────────────────────────
     logger.info("=" * 60)
     logger.info("STEP 2: Model catalogue")

@@ -107,6 +107,13 @@ def main() -> None:
         rpm_predictor = joblib.load(rpm_model_path)
         logger.info("Loaded RPM predictor: %s", rpm_model_path)
 
+    # Load Temp classifier if available
+    temp_classifier = None
+    temp_model_path = os.path.join(cfg.model_dir, "temp_classifier.joblib")
+    if os.path.isfile(temp_model_path):
+        temp_classifier = joblib.load(temp_model_path)
+        logger.info("Loaded Temp classifier: %s", temp_model_path)
+
     # ── 2. Load & extract validation features ──────────────────────────────
     logger.info("Loading validation data from %s …", cfg.validation_dir)
     val_runs = load_all_runs(cfg.validation_dir)
@@ -115,7 +122,7 @@ def main() -> None:
         sys.exit(1)
 
     logger.info("Building features for %d validation runs …", len(val_runs))
-    val_df = build_feature_table(val_runs, cfg, include_labels=False, rpm_predictor=rpm_predictor)
+    val_df = build_feature_table(val_runs, cfg, include_labels=False, rpm_predictor=rpm_predictor, temp_classifier=temp_classifier)
 
     val_csv = os.path.join(cfg.report_dir, "validation_features.csv")
     val_df.to_csv(val_csv, index=False)
