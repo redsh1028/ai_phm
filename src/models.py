@@ -21,7 +21,6 @@ from sklearn.ensemble import (
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.compose import TransformedTargetRegressor
 
 from src.config import PipelineConfig
 from src.utils import get_logger
@@ -72,64 +71,47 @@ def get_model_catalogue(cfg: PipelineConfig) -> Dict[str, Pipeline]:
     models["RandomForest"] = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
-        ("model", TransformedTargetRegressor(
-            regressor=RandomForestRegressor(
-                n_estimators=500,
-                max_depth=None,
-                min_samples_leaf=5,
-                random_state=seed,
-                n_jobs=n_jobs,
-            ),
-            func=np.log1p,
-            inverse_func=np.expm1
+        ("model", RandomForestRegressor(
+            n_estimators=500,
+            max_depth=None,
+            min_samples_leaf=5,
+            random_state=seed,
+            n_jobs=n_jobs,
         )),
     ])
 
     models["ExtraTrees"] = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
-        ("model", TransformedTargetRegressor(
-            regressor=ExtraTreesRegressor(
-                n_estimators=500,
-                max_depth=None,
-                min_samples_leaf=5,
-                random_state=seed,
-                n_jobs=n_jobs,
-            ),
-            func=np.log1p,
-            inverse_func=np.expm1
+        ("model", ExtraTreesRegressor(
+            n_estimators=500,
+            max_depth=None,
+            min_samples_leaf=5,
+            random_state=seed,
+            n_jobs=n_jobs,
         )),
     ])
 
     models["GradientBoosting"] = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
-        ("model", TransformedTargetRegressor(
-            regressor=GradientBoostingRegressor(
-                n_estimators=300,
-                max_depth=5,
-                min_samples_leaf=5,
-                learning_rate=0.05,
-                random_state=seed,
-            ),
-            func=np.log1p,
-            inverse_func=np.expm1
+        ("model", GradientBoostingRegressor(
+            n_estimators=300,
+            max_depth=5,
+            learning_rate=0.05,
+            subsample=0.8,
+            random_state=seed,
         )),
     ])
 
     models["HistGradientBoosting"] = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
-        ("model", TransformedTargetRegressor(
-            regressor=HistGradientBoostingRegressor(
-                max_iter=300,
-                max_depth=5,
-                min_samples_leaf=5,
-                learning_rate=0.05,
-                random_state=seed,
-            ),
-            func=np.log1p,
-            inverse_func=np.expm1
+        ("model", HistGradientBoostingRegressor(
+            max_iter=500,
+            max_depth=8,
+            learning_rate=0.05,
+            random_state=seed,
         )),
     ])
 
@@ -160,18 +142,15 @@ def get_model_catalogue(cfg: PipelineConfig) -> Dict[str, Pipeline]:
         models["LightGBM"] = Pipeline([
             ("imputer", SimpleImputer(strategy="median")),
             ("scaler", StandardScaler()),
-            ("model", TransformedTargetRegressor(
-                regressor=lgb.LGBMRegressor(
-                    n_estimators=300,
-                    max_depth=5,
-                    min_child_samples=5,
-                    learning_rate=0.05,
-                    random_state=seed,
-                    n_jobs=n_jobs,
-                    verbose=-1,
-                ),
-                func=np.log1p,
-                inverse_func=np.expm1
+            ("model", lgb.LGBMRegressor(
+                n_estimators=500,
+                max_depth=8,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=seed,
+                n_jobs=n_jobs,
+                verbose=-1,
             )),
         ])
         logger.info("LightGBM available – added to catalogue.")
