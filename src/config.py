@@ -80,7 +80,7 @@ DEFAULT_FAILURE_OFFSET_SEC: int = 300              # seconds after last file
 PARTIAL_RUN_CUTOFFS: List[float] = [0.30, 0.40, 0.50, 0.60, 0.70, 0.80]
 
 # ── Calibration search grid ───────────────────────────────────────────────
-CALIBRATION_RANGE: Tuple[float, float, float] = (0.70, 1.31, 0.01)  # start, stop, step
+CALIBRATION_RANGE: Tuple[float, float, float] = (1.0, 3.0, 0.05)  # start, stop, step
 
 # ── Random seed ───────────────────────────────────────────────────────────
 RANDOM_SEED: int = 42
