@@ -77,76 +77,89 @@ def main() -> None:
     cfg.ensure_dirs()
 
     # ── 1. Load trained models & metadata ──────────────────────────────────
-    meta_path = os.path.join(cfg.model_dir, "meta.json")
-    if not os.path.isfile(meta_path):
-        logger.error("meta.json not found at %s. Did you run train.py first?", meta_path)
+    logger.info("=" * 60)
+    logger.info("STEP 1: Loading MoE models & metadata")
+    logger.info("=" * 60)
+
+    import joblib
+    import json
+    
+    # Load Normal Expert
+    meta_normal_path = os.path.join(cfg.model_normal_dir, "meta.json")
+    if not os.path.isfile(meta_normal_path):
+        logger.error("Missing normal expert metadata. Exiting.")
         sys.exit(1)
-
-    with open(meta_path, "r") as f:
-        meta = json.load(f)
-
-    feature_cols: List[str] = meta["feature_cols"]
-    weights: Dict[str, float] = meta["ensemble_weights"]
-    calibration_factor: float = meta["calibration_factor"]
-    logger.info("Loaded metadata: %d features, calibration_factor=%.2f",
-                len(feature_cols), calibration_factor)
-
-    # Load model pipelines
-    models: Dict[str, object] = {}
-    for model_name in weights:
-        model_path = os.path.join(cfg.model_dir, f"{model_name}.joblib")
-        if not os.path.isfile(model_path):
-            logger.warning("Model file not found: %s – skipping.", model_path)
-            continue
-        models[model_name] = joblib.load(model_path)
-        logger.info("Loaded model: %s", model_name)
-
-    if not models:
-        logger.error("No models could be loaded. Exiting.")
+    with open(meta_normal_path, "r") as f:
+        meta_normal = json.load(f)
+    
+    models_normal = {}
+    for name in meta_normal["ensemble_weights"]:
+        model_path = os.path.join(cfg.model_normal_dir, f"{name}.joblib")
+        if os.path.isfile(model_path):
+            models_normal[name] = joblib.load(model_path)
+            
+    # Load Thermal Expert
+    meta_thermal_path = os.path.join(cfg.model_thermal_dir, "meta.json")
+    if not os.path.isfile(meta_thermal_path):
+        logger.error("Missing thermal expert metadata. Exiting.")
         sys.exit(1)
+    with open(meta_thermal_path, "r") as f:
+        meta_thermal = json.load(f)
+        
+    models_thermal = {}
+    for name in meta_thermal["ensemble_weights"]:
+        model_path = os.path.join(cfg.model_thermal_dir, f"{name}.joblib")
+        if os.path.isfile(model_path):
+            models_thermal[name] = joblib.load(model_path)
 
-    # Load RPM predictor if available
+    # Load RPM predictor
     rpm_predictor = None
     rpm_model_path = os.path.join(cfg.model_dir, "rpm_predictor.joblib")
     if os.path.isfile(rpm_model_path):
         rpm_predictor = joblib.load(rpm_model_path)
-        logger.info("Loaded RPM predictor: %s", rpm_model_path)
 
-    # Load Temp classifier if available
+    # Load Temp classifier
     temp_classifier = None
     temp_model_path = os.path.join(cfg.model_dir, "temp_classifier.joblib")
     if os.path.isfile(temp_model_path):
         temp_classifier = joblib.load(temp_model_path)
-        logger.info("Loaded Temp classifier: %s", temp_model_path)
 
     # ── 2. Load & extract validation features ──────────────────────────────
     logger.info("Loading validation data from %s …", cfg.validation_dir)
     val_runs = load_all_runs(cfg.validation_dir)
     if not val_runs:
-        logger.error("No validation runs found under %s. Exiting.", cfg.validation_dir)
+        logger.error("No validation runs found. Exiting.")
         sys.exit(1)
 
-    logger.info("Building features for %d validation runs …", len(val_runs))
     val_df = build_feature_table(val_runs, cfg, include_labels=False, rpm_predictor=rpm_predictor, temp_classifier=temp_classifier)
 
-    val_csv = os.path.join(cfg.report_dir, "validation_features.csv")
-    val_df.to_csv(val_csv, index=False)
-    logger.info("Saved validation features → %s  (%d rows × %d cols)",
-                val_csv, *val_df.shape)
-
-    # ── 3. Predict ─────────────────────────────────────────────────────────
+    # ── 3. Predict with MoE Routing ─────────────────────────────────────────
     run_ids = val_df["run_id"].unique()
-    prediction_rows: List[Dict] = []
-    all_individual_preds: List[Dict] = []
+    prediction_rows = []
 
     for run_id in run_ids:
         run_mask = val_df["run_id"] == run_id
         run_df = val_df.loc[run_mask].sort_values("sample_index")
-
-        # Use ALL available samples for context, but predict at the last sample
         last_row = run_df.iloc[[-1]]
+        
+        is_high_temp = float(last_row["is_high_temp_mode"].values[0])
+        
+        if is_high_temp > 0.5:
+            expert_name = "THERMAL"
+            models = models_thermal
+            meta = meta_thermal
+        else:
+            expert_name = "NORMAL"
+            models = models_normal
+            meta = meta_normal
+            
+        feature_cols = meta["feature_cols"]
+        weights = meta["ensemble_weights"]
+        calibration_factor = meta["calibration_factor"]
 
-        # Ensure feature columns exist (fill missing with NaN)
+        import numpy as np
+        import pandas as pd
+        
         X_last = pd.DataFrame(columns=feature_cols)
         for col in feature_cols:
             if col in last_row.columns:
@@ -155,16 +168,11 @@ def main() -> None:
                 X_last[col] = [np.nan]
         X_last = X_last.values.astype(np.float32)
 
-        # Individual model predictions
-        ind_preds: Dict[str, np.ndarray] = {}
-        row_data: Dict = {"run_id": run_id}
-
+        ind_preds = {}
         for model_name, model in models.items():
             pred = float(np.clip(model.predict(X_last), 0, None)[0])
             ind_preds[model_name] = np.array([pred])
-            row_data[f"pred_{model_name}"] = pred
 
-        # Ensemble (only over loaded models)
         active_weights = {k: weights[k] for k in models if k in weights}
         w_total = sum(active_weights.values())
         active_weights = {k: v / w_total for k, v in active_weights.items()}
@@ -173,35 +181,22 @@ def main() -> None:
         raw_rul = float(ens_pred[0])
         calibrated_rul = max(0.0, raw_rul * calibration_factor)
 
-        row_data["ensemble_raw"] = raw_rul
-        row_data["calibration_factor"] = calibration_factor
-        row_data["predicted_RUL_sec"] = calibrated_rul
-
-        prediction_rows.append(row_data)
-        logger.info("  %s: raw=%.1f  calibrated=%.1f sec", run_id, raw_rul, calibrated_rul)
+        prediction_rows.append({
+            "run_id": run_id,
+            "expert": expert_name,
+            "ensemble_raw": raw_rul,
+            "calibration_factor": calibration_factor,
+            "predicted_RUL_sec": calibrated_rul
+        })
+        logger.info(f"  {run_id}: expert={expert_name} raw={raw_rul:.1f}  calibrated={calibrated_rul:.1f} sec")
 
     # ── 4. Save predictions ────────────────────────────────────────────────
     pred_df = pd.DataFrame(prediction_rows)
-
-    # Full CSV with all details
-    full_csv = os.path.join(cfg.prediction_dir, "validation_predictions.csv")
-    pred_df.to_csv(full_csv, index=False)
-    logger.info("Full predictions saved → %s", full_csv)
-
-    # Clean Excel for submission
     submission_df = pred_df[["run_id", "predicted_RUL_sec"]].copy()
     submission_df.columns = ["Dataset", "Predicted_RUL_sec"]
-
     xlsx_path = os.path.join(cfg.prediction_dir, "team_validation.xlsx")
     submission_df.to_excel(xlsx_path, index=False, sheet_name="Predictions")
     logger.info("Submission file saved → %s", xlsx_path)
-
-    logger.info("")
-    logger.info("=" * 60)
-    logger.info("PREDICTION COMPLETE")
-    logger.info("=" * 60)
-    logger.info("\n%s", submission_df.to_string(index=False))
-
 
 if __name__ == "__main__":
     main()

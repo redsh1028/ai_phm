@@ -128,14 +128,22 @@ class PipelineConfig:
         return os.path.join(self.output_dir, "models")
 
     @property
-    def prediction_dir(self) -> str:
-        return os.path.join(self.output_dir, "predictions")
+    def model_normal_dir(self) -> str:
+        return os.path.join(self.model_dir, "normal")
+
+    @property
+    def model_thermal_dir(self) -> str:
+        return os.path.join(self.model_dir, "thermal")
 
     @property
     def report_dir(self) -> str:
         return os.path.join(self.output_dir, "reports")
 
+    @property
+    def prediction_dir(self) -> str:
+        return os.path.join(self.output_dir, "predictions")
+
     def ensure_dirs(self) -> None:
         """Create output directories if they do not exist."""
-        for d in (self.model_dir, self.prediction_dir, self.report_dir):
+        for d in [self.model_dir, self.model_normal_dir, self.model_thermal_dir, self.report_dir, self.prediction_dir]:
             os.makedirs(d, exist_ok=True)
