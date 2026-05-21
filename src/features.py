@@ -265,6 +265,31 @@ def _aux_channel_features(arr: np.ndarray, prefix: str) -> Dict[str, float]:
     return features
 
 
+def _find_physical_rpm(fft_cache: Dict[str, Tuple[np.ndarray, np.ndarray]], min_rpm: float = 700.0, max_rpm: float = 950.0) -> float:
+    """Find the physical rotating frequency (1X) peak from FFT magnitudes."""
+    min_hz = min_rpm / 60.0
+    max_hz = max_rpm / 60.0
+    
+    # Average the magnitudes across available channels to find the most robust peak
+    avg_mags = None
+    common_freqs = None
+    
+    for ch_key, (mags, freqs) in fft_cache.items():
+        if avg_mags is None:
+            avg_mags = np.zeros_like(mags)
+            common_freqs = freqs
+        avg_mags += mags
+        
+    if avg_mags is not None and common_freqs is not None:
+        mask = (common_freqs >= min_hz) & (common_freqs <= max_hz)
+        if np.any(mask):
+            valid_freqs = common_freqs[mask]
+            valid_mags = avg_mags[mask]
+            peak_freq = valid_freqs[np.argmax(valid_mags)]
+            return float(peak_freq * 60.0)
+            
+    return 800.0  # Fallback
+
 # ────────────────────────────────────────────────────────────────────────────
 # Public API: extract features for one record
 # ────────────────────────────────────────────────────────────────────────────
@@ -322,18 +347,13 @@ def extract_record_features(
     rpm = 1000.0  # default fallback
     if run.operation is not None:
         rpm = get_mean_rpm_for_file(run.operation, sample_index)
-    elif rpm_predictor is not None:
-        import pandas as pd
-        # Prepare row for rpm predictor
-        expected_cols = getattr(rpm_predictor, "feature_names_in_", None)
-        if expected_cols is not None:
-            row_dict = {k: v for k, v in feats.items() if k in expected_cols}
-            df_row = pd.DataFrame([row_dict])
-            for col in expected_cols:
-                if col not in df_row.columns:
-                    df_row[col] = 0.0
-            pred_rpm = float(rpm_predictor.predict(df_row[expected_cols])[0])
-            rpm = max(700.0, min(950.0, pred_rpm))  # Clip to realistic range
+    else:
+        # ── Phase 1: Physical RPM Peak Tracking ──
+        # Instead of AI, use deterministic FFT peak in the 700-950 RPM range
+        rpm = _find_physical_rpm(fft_cache, min_rpm=700.0, max_rpm=950.0)
+        
+    # Also save the rpm value as a feature if we want to log it
+    feats["physical_rpm_estimate"] = rpm
 
     # ── Fault Frequencies (RPM dependent) ──────────────────────────────────
     for ch_key, (magnitudes, freqs) in fft_cache.items():
